@@ -171,7 +171,7 @@ class Decoder(nn.Module):
 
 class EncoderDecoderSkipConnection(nn.Module):
 
-    def __init__(self,first_channels, res_blocks = 6):
+    def __init__(self, first_channels, res_blocks = 6):
 
         super().__init__()
 
