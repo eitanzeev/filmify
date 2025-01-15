@@ -2,11 +2,11 @@ import torch
 import torch.nn as nn 
 
 class ResidualBlock(nn.Module):
-    def __init__(self, channels, nonlinearity="leaky", use_batchnorm = False):
+    def __init__(self, channels, select_nonlinearity="leaky", use_batchnorm = False):
         super().__init__()
         
         self.channels = channels
-        self.nonlinearity = nonlinearity
+        self.select_nonlinearity = select_nonlinearity
 
         #We are not adjusting the channel sizes for the residual net as that requires
         #An additional transformation
@@ -19,27 +19,27 @@ class ResidualBlock(nn.Module):
                                     
         self.res_batchnorm2d = nn.BatchNorm2d(self.channels)
         
-        if self.nonlinearity.lower() == "relu":
-            self.nonlinearity = nn.ReLU(inplace=True)
-        elif self.nonlinearity.lower() == "tanh":
-            self.nonlinearity = nn.Tanh()
-        elif self.nonlinearity.lower() == "leaky":
-            self.nonlinearity = nn.LeakyReLU(inplace=True)
+        if select_nonlinearity.lower() == "relu":
+            self.nonlinearity_func = nn.ReLU(inplace=True)
+        elif select_nonlinearity.lower()  == "tanh":
+            self.nonlinearity_func = nn.Tanh()
+        elif select_nonlinearity.lower()  == "leaky":
+            self.nonlinearity_func = nn.LeakyReLU(inplace=True)
         else:
-            self.nonlinearity = nn.ReLU(inplace = True)
+            self.nonlinearity_func = nn.ReLU(inplace = True)
 
         
         if use_batchnorm:
             self.res_batchnorm2d = nn.BatchNorm2d(self.channels)
             self.residual_block = nn.Sequential(self.res_conv2d,
                                                 self.res_batchnorm2d,
-                                                self.nonlinearity,
+                                                self.nonlinearity_func,
                                                 self.res_conv2d,
                                                 self.res_batchnorm2d
                                                 )
         else:
             self.residual_block = nn.Sequential(self.res_conv2d,
-                                                self.nonlinearity,
+                                                self.nonlinearity_func,
                                                 self.res_conv2d,
                                                 )
             
@@ -52,35 +52,33 @@ class ResidualBlock(nn.Module):
 
 
         #"x + self.residual_block(x)" is the "shortcut". We're learning the difference 
-
-        if self.nonlinearity.lower() == "leaky":
-            return nn.LeakyReLU(x + self.residual_block(x))
-        elif self.nonlinearity.lower() == "relu":
-            return nn.ReLU(x + self.residual_block(x))
+        out = self.residual_block(x)
+        return self.nonlinearity_func(x+out)
+        
 
 class Encoder(nn.Module):
     def __init__(self, start_channels = 3,
                 encoder_depth = 4,
-                nonlinearity = "leaky", 
+                select_nonlinearity = "leaky", 
                 ):
 
         super().__init__()
 
         self.start_channels = start_channels
         self.encoder_depth = encoder_depth
-        self.nonlinearity = nonlinearity
+        self.select_nonlinearity = select_nonlinearity
                                             
     
         #Logic for automating the in_channels and out_channels
         channels_flow = [(256 / encoder_depth * i, (256 / encoder_depth * i)/2) for i in range(1,encoder_depth+1)]
         channels_flow = channels_flow[::-1]
 
-        if self.nonlinearity.lower() == "relu":
-            self.nonlinearity = nn.ReLU(inplace=True)
-        elif self.nonlinearity.lower() == "tanh":
-            self.nonlinearity = nn.Tanh()
-        elif self.nonlinearity.lower() == "leaky":
-            self.nonlinearity = nn.LeakyReLU(inplace=True)
+        if self.select_nonlinearity.lower() == "relu":
+            self.nonlinearity_func = nn.ReLU(inplace=True)
+        elif self.select_nonlinearity.lower() == "tanh":
+            self.nonlinearity_func = nn.Tanh()
+        elif self.select_nonlinearity.lower() == "leaky":
+            self.nonlinearity_func = nn.LeakyReLU(inplace=True)
 
         
 
@@ -89,14 +87,14 @@ class Encoder(nn.Module):
                                             kernel_size = 4,
                                             stride = 2,
                                             padding=1),
-                                    self.nonlinearity,
+                                    self.nonlinearity_func,
                                     nn.Conv2d(in_channels = 64, 
                                             out_channels= 128,
                                             kernel_size=4,
                                             stride = 2,
                                             padding = 1),
                                     nn.BatchNorm2d(128),
-                                    self.nonlinearity
+                                    self.nonlinearity_func
                                     )
         
     # def __repr__(self):
@@ -112,8 +110,8 @@ class Encoder(nn.Module):
 
 class Decoder(nn.Module):
     def __init__(self, start_channels, 
-                intermediate_nonlinearity = "leaky",
-                ending_linearity = "tanh", 
+                select_intermediate_nonlinearity = "leaky",
+                select_ending_nonlinearity = "tanh", 
                 norm_type = None,
                 final_layer_dims = 3):
         
@@ -144,11 +142,11 @@ class Decoder(nn.Module):
             pass
 
 
-        if intermediate_nonlinearity.lower() == "relu":
+        if select_intermediate_nonlinearity.lower() == "relu":
             all_layers += [nn.ReLU(inplace=True)]
-        elif intermediate_nonlinearity.lower() == "tanh":
+        elif select_intermediate_nonlinearity.lower() == "tanh":
             all_layers += [nn.Tanh()]
-        elif intermediate_nonlinearity.lower() == "leaky":
+        elif select_intermediate_nonlinearity.lower() == "leaky":
             all_layers += [nn.LeakyReLU(inplace=True)]
 
 
@@ -157,7 +155,7 @@ class Decoder(nn.Module):
 
         all_layers += [final_upsample]
 
-        if ending_linearity == "tanh":
+        if select_ending_nonlinearity == "tanh":
             all_layers += [nn.Tanh()]
 
         ##Create the sequential
@@ -177,13 +175,14 @@ class EncoderDecoderSkipConnection(nn.Module):
 
 
         #TODO adjust automatic readout of channels from encoder -> res_blocks
-        encoder = Encoder(start_channels=first_channels, nonlinearity="leaky")
+        encoder = Encoder(start_channels=first_channels, 
+                          select_nonlinearity="leaky")
         decoder = Decoder(start_channels = 128, 
-                            intermediate_nonlinearity="leaky",
-                            ending_linearity="tanh",
+                            select_intermediate_nonlinearity="leaky",
+                            select_ending_nonlinearity="tanh",
                             norm_type=None)
         # Residual blocks
-        residuals = nn.Sequential(*[ResidualBlock(128, nonlinearity="leaky") for _ in range(res_blocks)])
+        residuals = nn.Sequential(*[ResidualBlock(128, select_nonlinearity="leaky") for _ in range(res_blocks)])
 
         ###Equivalent to: 
         """
@@ -214,15 +213,16 @@ class PatchGANDiscriminator(nn.Module):
 
         self.patchgan = nn.Sequential(
                                     nn.Conv2d(in_channels, out_channels = 64, kernel_size = 4, stride = 2, padding =1),
-                                     nn.LeakyReLU(0.2, inplace = True),
-                                     nn.Conv2d(in_channels = 64, out_channels = 128, kernel_size = 4, stride = 2, padding = 1),
-                                     nn.BatchNorm2d(128),
-                                     nn.LeakyReLU(0.2, inplace = True),
-                                     nn.Conv2d(in_channels = 128, out_channels = 256, stride = 2, kernel_size = 4, padding = 1),
-                                     nn.BatchNorm2d(256), 
-                                     nn.LeakyReLU(0.2, inplace = True),
-                                     nn.Conv2d(in_channels = 256, out_channels = 1, stride = 1, kernel_size = 4, padding = 1)
-                                     )
+                                    nn.LeakyReLU(0.2, inplace = True),
+                                    nn.Conv2d(in_channels = 64, out_channels = 128, kernel_size = 4, stride = 2, padding = 1),
+                                    nn.BatchNorm2d(128),
+                                    nn.LeakyReLU(0.2, inplace = True),
+                                    nn.Conv2d(in_channels = 128, out_channels = 256, stride = 2, kernel_size = 4, padding = 1),
+                                    nn.BatchNorm2d(256), 
+                                    nn.LeakyReLU(0.2, inplace = True),
+                                    nn.Conv2d(in_channels = 256, out_channels = 1, stride = 1, kernel_size = 4, padding = 1),
+                                    nn.Sigmoid() 
+                                    )
         
         "patchGANs downsample the photo and "
 
