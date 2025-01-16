@@ -175,14 +175,14 @@ class EncoderDecoderSkipConnection(nn.Module):
 
 
         #TODO adjust automatic readout of channels from encoder -> res_blocks
-        encoder = Encoder(start_channels=first_channels, 
+        self.encoder = Encoder(start_channels=first_channels, 
                           select_nonlinearity="leaky")
-        decoder = Decoder(start_channels = 128, 
+        self.decoder = Decoder(start_channels = 128, 
                             select_intermediate_nonlinearity="leaky",
                             select_ending_nonlinearity="tanh",
                             norm_type=None)
         # Residual blocks
-        residuals = nn.Sequential(*[ResidualBlock(128, select_nonlinearity="leaky") for _ in range(res_blocks)])
+        self.residuals = nn.Sequential(*[ResidualBlock(128, select_nonlinearity="leaky") for _ in range(res_blocks)])
 
         ###Equivalent to: 
         """
@@ -196,7 +196,7 @@ class EncoderDecoderSkipConnection(nn.Module):
         )
         """
 
-        self.encoder_resblock_decoder = nn.Sequential(encoder, residuals, decoder)
+        self.encoder_resblock_decoder = nn.Sequential(self.encoder, self.esiduals, self.decoder)
 
 
     def forward(self, x):
